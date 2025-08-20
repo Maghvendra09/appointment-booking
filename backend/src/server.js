@@ -11,14 +11,44 @@ const app = express();
 
 connectDB();
 
-const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-netlify-app-url.netlify.app', 'https://appointment-booking-frontend.onrender.com']
-    : 'http://localhost:5173',
-  credentials: true,
-  optionsSuccessStatus: 200 
-};
-app.use(cors(corsOptions));
+// Configure CORS
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://appointbooking.netlify.app'
+];
+
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`, {
+    origin: req.headers.origin,
+    'user-agent': req.headers['user-agent']
+  });
+  next();
+});
+
+// CORS middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Allow requests from allowed origins
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+      console.log('Handling preflight request');
+      return res.status(200).end();
+    }
+  } else if (origin) {
+    console.log('Blocked request from origin:', origin);
+  }
+  
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
