@@ -1,13 +1,11 @@
 const express = require('express');
-const { generateSlots, getAvailableSlots } = require('../controllers/slotController');
+const { generateSlots, getAvailableSlots, deleteSlot } = require('../controllers/slotController');
 const { auth, adminAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Admin only route to generate slots
 router.post('/generate', auth, adminAuth, generateSlots);
-
-// Public route to get available slots
 router.get('/', getAvailableSlots);
+router.delete('/:id', auth, adminAuth, deleteSlot);
 
 module.exports = router;

@@ -18,14 +18,14 @@ A full-stack appointment booking system built with Node.js, Express, MongoDB, an
 - **Backend**: Node.js, Express.js
 - **Database**: MongoDB with Mongoose
 - **Authentication**: JWT (JSON Web Tokens)
-- **Frontend**: React.js (to be implemented)
-- **Styling**: CSS (to be implemented)
+- **Frontend**: React.js 
+- **Styling**: CSS 
 
 ## Prerequisites
 
-- Node.js (v14 or higher)
-- npm (v6 or higher)
-- MongoDB (local or cloud instance)
+- Node.js 
+- npm 
+- MongoDB 
 
 ## Setup Instructions
 
@@ -56,7 +56,7 @@ A full-stack appointment booking system built with Node.js, Express, MongoDB, an
 
    The server will start on `http://localhost:5000`
 
-### Frontend Setup (To be implemented)
+### Frontend Setup
 
 ## API Endpoints
 
@@ -91,7 +91,7 @@ A full-stack appointment booking system built with Node.js, Express, MongoDB, an
 1. Set up a MongoDB Atlas database and update the `MONGO_URI` in `.env`
 2. Deploy to a platform like Render, Heroku, or Railway
 
-### Frontend (To be implemented)
+### Frontend
 
 ## License
 

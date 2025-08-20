@@ -1,78 +1,145 @@
+const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Slot = require('../models/Slot');
 
-// Book a slot
 const bookSlot = async (req, res) => {
-  const session = await Booking.startSession();
-  session.startTransaction();
+  console.log('Booking request received:', req.body);
   
-  try {
-    const { slotId } = req.body;
-    const userId = req.user._id;
+  if (!req.body.slotId) {
+    return res.status(400).json({
+      error: {
+        code: 'MISSING_SLOT_ID',
+        message: 'Slot ID is required in the request body'
+      }
+    });
+  }
+  
+  const MAX_RETRIES = 3;
+  let retryCount = 0;
+  let lastError;
+  
+  while (retryCount < MAX_RETRIES) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
     
-    // Check if slot exists and is available
-    const slot = await Slot.findById(slotId).session(session);
+    try {
+      const { slotId } = req.body;
+      const userId = req.user?._id;
+      
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
+      
+      console.log(`Processing booking - User: ${userId}, Slot: ${slotId}`);
+      
+      // Check for existing booking first
+      const existingBooking = await Booking.findOne({ slot: slotId , status: 'confirmed' })
+        .session(session);
+        
+      console.log('Existing booking check:', existingBooking ? 'Found' : 'Not found');
+      
+      if (existingBooking) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ 
+          error: { 
+            code: 'SLOT_ALREADY_BOOKED', 
+            message: 'This slot is already booked' 
+          } 
+        });
+      }
+      
+      // Find and lock the slot
+      const slot = await Slot.findById(slotId)
+        .session(session)
+        .select('+isBooked +bookedBy')
+        .lean();
+      
+      if (!slot) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ 
+          error: { 
+            code: 'SLOT_NOT_FOUND', 
+            message: 'Slot not found' 
+          } 
+        });
+      }
+      
+      if (slot.isBooked) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ 
+          error: { 
+            code: 'SLOT_ALREADY_BOOKED', 
+            message: 'This slot is already booked' 
+          } 
+        });
+      }
+      
+      // Create booking and update slot in a single transaction
+      const [booking] = await Promise.all([
+        Booking.create([{
+          user: userId,
+          slot: slotId,
+          status: 'confirmed'
+        }], { session }),
+        
+        Slot.findByIdAndUpdate(
+          slotId,
+          { 
+            $set: { 
+              isBooked: true,
+              bookedBy: userId 
+            } 
+          },
+          { session, new: true }
+        )
+      ]);
     
-    if (!slot) {
-      await session.abortTransaction();
+      await session.commitTransaction();
       session.endSession();
-      return res.status(404).json({ 
-        error: { 
-          code: 'SLOT_NOT_FOUND', 
-          message: 'Slot not found' 
-        } 
+      
+      return res.status(201).json({
+        message: 'Slot booked successfully',
+        booking
       });
+      
+    } catch (error) {
+      try {
+        await session.abortTransaction();
+      } catch (abortError) {
+        console.error('Error aborting transaction:', abortError);
+      } finally {
+        session.endSession();
+      }
+      
+      // Log the error for debugging
+      console.error('Booking error (attempt', retryCount + 1, '):', error);
+      lastError = error;
+      
+      // If it's not a write conflict or we've exceeded retries, return the error
+      if (error.code !== 112 || retryCount >= MAX_RETRIES - 1) {
+        const statusCode = error.code === 11000 ? 409 : 500;
+        return res.status(statusCode).json({ 
+          error: { 
+            code: error.code || 'BOOKING_ERROR',
+            message: error.code === 11000 
+              ? 'This slot has already been booked by another user' 
+              : error.message || 'Error processing booking'
+          } 
+        });
+      }
+      
+      // Exponential backoff before retry
+      const delay = Math.pow(2, retryCount) * 100;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      retryCount++;
+      console.log(`Retry ${retryCount} for booking slot...`);
     }
-    
-    if (slot.isBooked) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ 
-        error: { 
-          code: 'SLOT_ALREADY_BOOKED', 
-          message: 'This slot is already booked' 
-        } 
-      });
-    }
-    
-    // Create booking
-    const booking = new Booking({
-      user: userId,
-      slot: slotId,
-      status: 'confirmed'
-    });
-    
-    // Mark slot as booked
-    slot.isBooked = true;
-    slot.bookedBy = userId;
-    
-    // Save both in a transaction
-    await booking.save({ session });
-    await slot.save({ session });
-    
-    await session.commitTransaction();
-    session.endSession();
-    
-    res.status(201).json({
-      message: 'Slot booked successfully',
-      booking
-    });
-    
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    
-    console.error('Booking error:', error);
-    res.status(500).json({ 
-      error: { 
-        code: 'BOOKING_ERROR', 
-        message: 'Error booking slot' 
-      } 
-    });
   }
 };
 
-// Get user's bookings
 const getMyBookings = async (req, res) => {
   try {
     const bookings = await Booking.find({ user: req.user._id })
@@ -92,7 +159,6 @@ const getMyBookings = async (req, res) => {
   }
 };
 
-// Get all bookings (admin only)
 const getAllBookings = async (req, res) => {
   try {
     const bookings = await Booking.find()
@@ -113,7 +179,6 @@ const getAllBookings = async (req, res) => {
   }
 };
 
-// Cancel a booking
 const cancelBooking = async (req, res) => {
   const session = await Booking.startSession();
   session.startTransaction();
@@ -122,7 +187,6 @@ const cancelBooking = async (req, res) => {
     const { bookingId } = req.params;
     const userId = req.user._id;
     
-    // Find booking
     const booking = await Booking.findOne({
       _id: bookingId,
       user: userId,
@@ -140,7 +204,6 @@ const cancelBooking = async (req, res) => {
       });
     }
     
-    // Find and update slot
     const slot = await Slot.findById(booking.slot).session(session);
     if (slot) {
       slot.isBooked = false;
@@ -148,7 +211,6 @@ const cancelBooking = async (req, res) => {
       await slot.save({ session });
     }
     
-    // Update booking status
     booking.status = 'cancelled';
     await booking.save({ session });
     

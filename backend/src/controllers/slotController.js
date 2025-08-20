@@ -1,7 +1,6 @@
 const Slot = require('../models/Slot');
 const Booking = require('../models/Booking');
 
-// Generate slots for the next 7 days
 const generateSlots = async (req, res) => {
   try {
     const slots = [];
@@ -9,12 +8,10 @@ const generateSlots = async (req, res) => {
     const startDate = new Date(now);
     startDate.setHours(0, 0, 0, 0);
     
-    // Generate for next 7 days
     for (let day = 0; day < 7; day++) {
       const currentDate = new Date(startDate);
       currentDate.setDate(startDate.getDate() + day);
       
-      // Generate slots from 9 AM to 5 PM, 30-minute intervals
       for (let hour = 9; hour < 17; hour++) {
         for (let minute of [0, 30]) {
           const startTime = new Date(currentDate);
@@ -23,7 +20,6 @@ const generateSlots = async (req, res) => {
           const endTime = new Date(startTime);
           endTime.setMinutes(startTime.getMinutes() + 30);
           
-          // Skip if slot is in the past
           if (startTime < now) continue;
           
           slots.push({
@@ -35,7 +31,6 @@ const generateSlots = async (req, res) => {
       }
     }
     
-    // Remove existing slots and insert new ones
     await Slot.deleteMany({});
     const createdSlots = await Slot.insertMany(slots);
     
@@ -56,7 +51,6 @@ const generateSlots = async (req, res) => {
   }
 };
 
-// Get available slots within date range
 const getAvailableSlots = async (req, res) => {
   try {
     const { from, to } = req.query;
@@ -73,7 +67,6 @@ const getAvailableSlots = async (req, res) => {
     const startDate = new Date(from);
     const endDate = new Date(to);
     
-    // Find available slots within date range
     const slots = await Slot.find({
       startTime: { $gte: startDate, $lte: endDate },
       isBooked: false
@@ -94,5 +87,45 @@ const getAvailableSlots = async (req, res) => {
 
 module.exports = {
   generateSlots,
-  getAvailableSlots
+  getAvailableSlots,
+  deleteSlot: async (req, res) => {
+    try {
+      const slot = await Slot.findById(req.params.id);
+      
+      if (!slot) {
+        return res.status(404).json({
+          error: {
+            code: 'SLOT_NOT_FOUND',
+            message: 'Slot not found'
+          }
+        });
+      }
+
+      // Check if the slot is booked
+      if (slot.isBooked) {
+        return res.status(400).json({
+          error: {
+            code: 'SLOT_BOOKED',
+            message: 'Cannot delete a booked slot. Cancel the booking first.'
+          }
+        });
+      }
+
+      await Slot.findByIdAndDelete(req.params.id);
+      
+      res.json({
+        success: true,
+        message: 'Slot deleted successfully'
+      });
+      
+    } catch (error) {
+      console.error('Delete slot error:', error);
+      res.status(500).json({
+        error: {
+          code: 'DELETE_SLOT_ERROR',
+          message: 'Error deleting slot'
+        }
+      });
+    }
+  }
 };
